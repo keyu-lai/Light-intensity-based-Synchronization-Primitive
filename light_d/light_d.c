@@ -49,9 +49,37 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device);
 
 void daemon_mode()
 {
+	/* Fill in daemon implementation here */
+	pid_t pid, sid;
 
-/* Fill in daemon implementation here */
+	pid = fork();
+	if(pid < 0) {
+		printf("error: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	if (pid > 0) {
+		printf("parent\n");
+		exit(EXIT_SUCCESS);
+	}
 
+	/* Change the file mode mask */
+	umask(0);
+	/* Create a new SID for the child process */
+	sid = setsid();
+	if (sid < 0) {
+		printf("error: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	/* Change the current working directory */
+	if ((chdir("/")) < 0) {
+		/* Log any failure here */
+		printf("error: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	/* Close out the standard file descriptors */
+	// close(STDIN_FILENO);
+	// close(STDOUT_FILENO);
+	// close(STDERR_FILENO);
 }
 
 int main(int argc, char **argv)
@@ -87,10 +115,11 @@ int main(int argc, char **argv)
 	enumerate_sensors(sensors_module);
 
 	/* Fill in daemon implementation around here */
+	#define TIME_INTERVAL  200
 	printf("turn me into a daemon!\n");
-	while (1) {
-		
+	while (1) {	
 		poll_sensor_data(sensors_device);
+		usleep(TIME_INTERVAL * 1000);
 	}
 
 	return EXIT_SUCCESS;
@@ -103,25 +132,28 @@ int main(int argc, char **argv)
 
 static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 {   
-    const size_t numEventMax = 16;
-    const size_t minBufferSize = numEventMax;
-    sensors_event_t buffer[minBufferSize];
-    ssize_t count = sensors_device->poll(sensors_device, buffer, minBufferSize);
-    float cur_intensity = 0;
-	
+	const size_t numEventMax = 16;
+	const size_t minBufferSize = numEventMax;
+	sensors_event_t buffer[minBufferSize];
+	ssize_t count = sensors_device->poll(sensors_device, buffer, minBufferSize);
+	float cur_intensity = 0;
+	struct light_intensity lig;
+	int i; 
 
-    int i; 
-      
 	if (cur_device == DEVICE) {
-		
+
 		for (i = 0; i < count; ++i) {
-                	if (buffer[i].sensor != effective_sensor)
-                        	continue;
-                
-		/* You have the intensity here - scale it and send it to your kernel */
-                
-		cur_intensity = buffer[i].light;
-		printf("%f\n", cur_intensity);	
+			if (buffer[i].sensor != effective_sensor)
+				continue;
+		
+			/* You have the intensity here - scale it and send it to your kernel */
+			cur_intensity = buffer[i].light;
+			lig.cur_intensity = cur_intensity * 1000;
+			if (syscall(__NR_set_light_intensity, &lig) != 0) {
+				printf("error: %s\n", strerror(errno));
+				return EXIT_FAILURE;				
+			}
+			printf("%f\n", cur_intensity);
 		}
 	}
 
@@ -132,6 +164,11 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 		/* cur_intensity has a floating point value that you would have fed to */
 		/* light_sensor binary */
 		cur_intensity = poll_sensor_data_emulator();
+		lig.cur_intensity = cur_intensity * 1000;
+		if (syscall(__NR_set_light_intensity, &lig) != 0) {
+			printf("error: %s\n", strerror(errno));
+			return EXIT_FAILURE;				
+		}
 		printf("%f\n", cur_intensity);
 	}
 	
@@ -148,14 +185,14 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 static int poll_sensor_data_emulator(void)
 {
 	float cur_intensity;
-        
-        FILE *fp = fopen("/data/misc/intensity", "r");
-        if (!fp)
-                return 0;       
-        
-        fscanf(fp, "%f", &cur_intensity);
-        fclose(fp);
-        return cur_intensity;
+	
+	FILE *fp = fopen("/data/misc/intensity", "r");
+	if (!fp)
+		return 0;       
+	
+	fscanf(fp, "%f", &cur_intensity);
+	fclose(fp);
+	return cur_intensity;
 }
 
 
@@ -219,5 +256,5 @@ static void enumerate_sensors(const struct sensors_module_t *sensors)
 		if (slist[s].type == LIGHT_INTENSITY_SENSOR && slist[s].handle == LIGHT_INTENSITY_SENSOR)
 			effective_sensor = LIGHT_INTENSITY_SENSOR; /*the sensor ID*/
 
-                }
+		}
 }
