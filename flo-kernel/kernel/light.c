@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 
 struct event {
+	int eid;
 	int req_intensity;
 	int frequency;
 	wait_queue_head_t *waiting_tasks; /* this contains its own lock */
@@ -16,7 +17,15 @@ struct event {
 						regular int might work. But I'm not sure yet ... this will 
 						become clear as we work on it */
 };
-struct list_head event_list;
+struct event event_list_head = {
+	.eid = 0,
+	.req_intensity = 0,
+	.frequency = 0,
+	.waiting_tasks = NULL,
+	.event_list = LIST_HEAD_INIT(event_list_head.event_list),
+	.ref_count = {0}
+
+};
 static DECLARE_RWSEM(eventlist_lock); /* we could also use a simple mutex...? */
 
 static int light_readings[WINDOW];
