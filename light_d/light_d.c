@@ -57,10 +57,8 @@ void daemon_mode()
 		printf("error: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	if (pid > 0) {
-		printf("parent\n");
+	if (pid > 0)
 		exit(EXIT_SUCCESS);
-	}
 
 	/* Change the file mode mask */
 	umask(0);
@@ -77,9 +75,9 @@ void daemon_mode()
 		exit(EXIT_FAILURE);
 	}
 	/* Close out the standard file descriptors */
-	// close(STDIN_FILENO);
-	// close(STDOUT_FILENO);
-	// close(STDERR_FILENO);
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO); 
 }
 
 int main(int argc, char **argv)
@@ -119,7 +117,7 @@ int main(int argc, char **argv)
 	printf("turn me into a daemon!\n");
 	while (1) {	
 		poll_sensor_data(sensors_device);
-		usleep(TIME_INTERVAL * 1000);
+		usleep(TIME_INTERVAL);
 	}
 
 	return EXIT_SUCCESS;
