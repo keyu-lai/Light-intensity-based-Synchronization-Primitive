@@ -143,9 +143,8 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	struct event *tmp;
 
 	removed_light = light_readings[next_reading]; 
-	read_lock(&light_rwlock);
-	added_light = light_sensor.cur_intensity;
-	read_unlock(&light_rwlock);
+	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
+		return -EINVAL;
 	light_readings[next_reading++] = added_light;
 	//down_read(readings_buffer_lock)
 	if (next_reading == WINDOW)

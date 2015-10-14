@@ -151,6 +151,10 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 				printf("error: %s\n", strerror(errno));
 				return EXIT_FAILURE;				
 			}
+			if (syscall(__NR_light_evt_signal, &lig) != 0) {
+				printf("error: %s\n", strerror(errno));
+				return EXIT_FAILURE;
+			}
 			printf("%f\n", cur_intensity);
 		}
 	}
