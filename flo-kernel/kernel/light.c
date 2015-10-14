@@ -127,7 +127,6 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
 			add_wait_queue(tmp->waiting_tasks, &wait);
-			return 10;
 			break;
 		}
 	}
