@@ -113,7 +113,7 @@ int main(int argc, char **argv)
 	enumerate_sensors(sensors_module);
 
 	/* Fill in daemon implementation around here */
-	#define TIME_INTERVAL  200
+	#define TIME_INTERVAL  1000
 	printf("turn me into a daemon!\n");
 	while (1) {	
 		poll_sensor_data(sensors_device);
@@ -155,7 +155,7 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 				printf("error: %s\n", strerror(errno));
 				return EXIT_FAILURE;
 			}
-			printf("%f\n", cur_intensity);
+			printf("%d\n", lig.cur_intensity);
 		}
 	}
 
@@ -170,6 +170,10 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 		if (syscall(__NR_set_light_intensity, &lig) != 0) {
 			printf("error: %s\n", strerror(errno));
 			return EXIT_FAILURE;				
+		}
+		if (syscall(__NR_light_evt_signal, &lig) != 0) {
+			printf("error: %s\n", strerror(errno));
+			return EXIT_FAILURE;
 		}
 		printf("%f\n", cur_intensity);
 	}

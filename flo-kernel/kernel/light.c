@@ -89,15 +89,18 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	  * If the even already exist in the list, we only need to increase ref_count,
 	  * which is atomic type. So we don't need to acquire the write lock.
 	  */
+	//printk("0000\n");
 	down_read(&eventlist_lock);
+	//printk("1111\n");
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->req_intensity == req_intensity 
 			&& tmp->frequency == frequency) {
-			up_read(&eventlist_lock);
 			atomic_inc(&tmp->ref_count);
 			return tmp->eid;
 		}
 	}
+	up_read(&eventlist_lock);
+	//printk("2222\n");
 
 	/* try not to kmalloc inside the write lock */
 	tmp = create_event_descriptor(req_intensity, frequency);
@@ -107,8 +110,10 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	 * We will figure it out when we finish all the system calls.
 	 */
 	down_write(&eventlist_lock);
+	//printk("3333\n");
 	list_add_tail(&tmp->event_list, &event_list_head.event_list);
 	up_write(&eventlist_lock);
+	printk("4444\n");
 	return tmp->eid;
 }
 
@@ -121,15 +126,17 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
-			up_read(&eventlist_lock);
 			add_wait_queue(tmp->waiting_tasks, &wait);
+			return 10;
 			break;
 		}
 	}
+	up_read(&eventlist_lock);
+
 	/* No such an event. */
 	if (tmp == &event_list_head)
 		return -EINVAL;
-	finish_wait(tmp->waiting_tasks, &wait);
+	remove_wait_queue(tmp->waiting_tasks, &wait);
 	return 0;
 }
 
@@ -146,7 +153,6 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
 		return -EINVAL;
 	light_readings[next_reading++] = added_light;
-	//down_read(readings_buffer_lock)
 	if (next_reading == WINDOW)
 		next_reading = 0;
 	if (!init && !next_reading)
@@ -178,6 +184,12 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 		++i;
 	}
 	sorted_indices[i] = added_light;
+	/*for (i = 0; i < 20; ++i)
+		printk("%d ", light_readings[i]);
+	printk("\n");
+	for (i = 0; i < 20; ++i)
+		printk("%d ", sorted_indices[i]);
+	printk("\n");*/
 
 	/* Do we need a write lock? Because wait_queue has its own lock. */
 	down_read(&eventlist_lock);
@@ -196,11 +208,11 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
-		if (tmp->eid == event_id) {
-			up_read(&eventlist_lock);
+		if (tmp->eid == event_id)
 			break;
-		}
 	}
+	up_read(&eventlist_lock);
+
 	/* No such an event. */
 	if (tmp == &event_list_head)
 		return -EINVAL;
