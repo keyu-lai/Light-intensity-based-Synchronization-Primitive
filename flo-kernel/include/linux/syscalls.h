@@ -64,6 +64,7 @@ struct old_linux_dirent;
 struct perf_event_attr;
 struct file_handle;
 struct light_intensity;
+struct event_requirements;
 
 #include <linux/types.h>
 #include <linux/aio_abi.h>
@@ -860,5 +861,9 @@ asmlinkage long sys_process_vm_writev(pid_t pid,
 				      unsigned long flags);
 asmlinkage long sys_set_light_intensity(struct light_intensity __user * user_light_intensity);
 asmlinkage long sys_get_light_intensity(struct light_intensity __user * user_light_intensity);
+asmlinkage long sys_light_evt_create(struct event_requirements __user *intensity_params);
+asmlinkage long sys_light_evt_wait(int event_id);
+asmlinkage long sys_light_evt_signal(struct light_intensity __user * user_light_intensity);
+asmlinkage long sys_light_evt_destroy(int event_id);
 
 #endif
