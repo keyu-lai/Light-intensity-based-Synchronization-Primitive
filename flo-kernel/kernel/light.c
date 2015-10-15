@@ -15,6 +15,7 @@ struct event {
 	int frequency;
 	wait_queue_head_t *waiting_tasks; /* this contains its own lock */
 	struct list_head event_list;
+	atomic_t flag;
 	atomic_t ref_count; /* given that light_evt_create and light_evt_destroy will be holding
 						the eventlist_lock, I'm not sure this has to be an atomic_t. A
 						regular int might work. But I'm not sure yet ... this will 
@@ -30,6 +31,7 @@ static struct event event_list_head = {
 	.frequency = 0,
 	.waiting_tasks = NULL,
 	.event_list = LIST_HEAD_INIT(event_list_head.event_list),
+	.flag = {0},
 	.ref_count = {0}
 };
 static DECLARE_RWSEM(eventlist_lock); /* we could also use a simple mutex...? */
@@ -51,6 +53,7 @@ static struct event *create_event_descriptor(int req_intensity, int frequency) {
 		return NULL;
 	}
 	init_waitqueue_head(new_event->waiting_tasks);
+	atomic_set(&new_event->flag, 0);
 	atomic_set(&new_event->ref_count, 1);
 	return new_event;
 }
@@ -86,7 +89,7 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	if (frequency > WINDOW)
 		frequency = WINDOW;
 	 /* 
-	  * If the even already exist in the list, we only need to increase ref_count,
+	  * If the event already exists in the list, we only need to increase ref_count,
 	  * which is atomic type. So we don't need to acquire the write lock.
 	  */
 	//printk("0000\n");
@@ -95,6 +98,7 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->req_intensity == req_intensity 
 			&& tmp->frequency == frequency) {
+			up_read(&eventlist_lock);
 			atomic_inc(&tmp->ref_count);
 			return tmp->eid;
 		}
@@ -113,29 +117,29 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	//printk("3333\n");
 	list_add_tail(&tmp->event_list, &event_list_head.event_list);
 	up_write(&eventlist_lock);
-	printk("4444\n");
+	//printk("4444\n");
 	return tmp->eid;
 }
 
 SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 {
 	struct event *tmp;
-	DEFINE_WAIT(wait);
 
 	/* Since wait_queue has its own lock, we don't need to acquire write lock. */
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
-			add_wait_queue(tmp->waiting_tasks, &wait);
+			up_read(&eventlist_lock);
+			wait_event(*tmp->waiting_tasks, atomic_read(&tmp->flag));
 			break;
 		}
 	}
-	up_read(&eventlist_lock);
 
 	/* No such an event. */
-	if (tmp == &event_list_head)
+	if (tmp == &event_list_head) {
+		up_read(&eventlist_lock);
 		return -EINVAL;
-	remove_wait_queue(tmp->waiting_tasks, &wait);
+	}
 	return 0;
 }
 
@@ -193,8 +197,12 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	/* Do we need a write lock? Because wait_queue has its own lock. */
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
-		if (tmp->frequency == 0 || sorted_indices[tmp->frequency - 1] >= tmp->req_intensity)
+		if (tmp->frequency == 0 || sorted_indices[tmp->frequency - 1] >= tmp->req_intensity) {
+			atomic_set(&tmp->flag, 1);
 			wake_up_all(tmp->waiting_tasks);
+		}
+		else
+			atomic_set(&tmp->flag, 0);
 	}
 	up_read(&eventlist_lock);
 	return 0;

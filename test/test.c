@@ -17,7 +17,7 @@ int main (void)
 		printf("%d\n", buf.cur_intensity);
 		usleep(300000);
 	}
-	event.req_intensity = 150000;
+	event.req_intensity = 300000;
 	event.frequency = 12;
 	eid = syscall(380, &event);
 	printf("%d\n", eid);
