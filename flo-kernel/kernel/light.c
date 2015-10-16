@@ -9,7 +9,7 @@
 #include <asm/atomic.h>
 #include <linux/slab.h>
 
-#define MAX_INTENSITY 32768
+#define MAX_INTENSITY 32768 * 100
 
 struct event {
 	int eid;
@@ -61,6 +61,7 @@ static struct event *create_event_descriptor(int req_intensity, int frequency) {
 
 SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, user_light_intensity)
 {
+
 	if (user_light_intensity == NULL)
 		return -EINVAL;
 	write_lock(&light_rwlock);
@@ -88,35 +89,18 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	int req_intensity;
 	int frequency;
 
-	if (copy_from_user(&request, intensity_params, 
-						sizeof(struct event_requirements)));
-		return -EINVAL; 
+	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)) != 0)
+		return -EFAULT; 
+
+	req_intensity = request.req_intensity;
+	frequency = request.frequency;
 
 	if (frequency <= 0 || req_intensity < 0 || req_intensity > MAX_INTENSITY)
 		return -EINVAL;
 	if (frequency > WINDOW)
 		frequency = WINDOW;
 
-	req_intensity = request.req_intensity;
-	frequency = request.frequency;
-	 /* 
-	  * If the event already exists in the list, we only need to increase ref_count,
-	  * which is atomic type, so we don't need to write in that case, but we
-	  * do in the case where we create a new event.
-	  */
-	//printk("0000\n");
 	down_write(&eventlist_lock);
-	//printk("1111\n");
-	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
-		if (tmp->req_intensity == req_intensity 
-			&& tmp->frequency == frequency) {
-			up_write(&eventlist_lock);
-			atomic_inc(&tmp->ref_count);
-			return tmp->eid;
-		}
-	}
-	//up_read(&eventlist_lock);
-	//printk("2222\n");
 
 	tmp = create_event_descriptor(req_intensity, frequency);
 	if (tmp == NULL) {
@@ -144,12 +128,13 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
 			up_read(&eventlist_lock);
+			atomic_add(1, &tmp->ref_count);
 			wait_event(*tmp->waiting_tasks, atomic_read(&tmp->run_flag));
 			break;
 		}
 	}
 
-	/* No such an event. */
+	/* No such event. */
 	if (tmp == &event_list_head) {
 		up_read(&eventlist_lock);
 		return -EINVAL;
@@ -170,8 +155,11 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	struct event *tmp;
 	 
 	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
-		return -EINVAL;
+		return -EFAULT;
 
+	/* I'm worried that this insertion sort is too complicated.
+		It's a nice optimization, but we could just sort the indices
+		with qsort */
 	down_write(&readings_buffer_lock);
 	removed_light = light_readings[next_reading];
 	light_readings[next_reading++] = added_light;
@@ -207,25 +195,21 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 		++i;
 	}
 	sorted_indices[i] = added_light;
-	up_write(&readings_buffer_lock);
-	/*for (i = 0; i < 20; ++i)
-		printk("%d ", light_readings[i]);
-	printk("\n");
-	for (i = 0; i < 20; ++i)
-		printk("%d ", sorted_indices[i]);
-	printk("\n");*/
 
 	/* Do we need a write lock? Because wait_queue has its own lock. */
 	downgrade_write(&readings_buffer_lock);
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {		
-		if (tmp->frequency == 0 || sorted_indices[tmp->frequency - 1] >= tmp->req_intensity) {
-			atomic_set(&tmp->run_flag, 1);
-			wake_up_all(tmp->waiting_tasks);
-			atomic_set(&tmp->run_flag, 0);
+		if (tmp->eid != 0) {
+			if (tmp->frequency == 0 || sorted_indices[tmp->frequency - 1] >= 
+										tmp->req_intensity - NOISE) {
+				atomic_set(&tmp->run_flag, 1);			
+				atomic_set(&tmp->ref_count, 0);
+				wake_up_all(tmp->waiting_tasks);
+			}
+			else
+				atomic_set(&tmp->run_flag, 0); 		
 		}
-		else
-			atomic_set(&tmp->run_flag, 0); /* is this necessary? */
 	}
 	up_read(&eventlist_lock);
 	up_read(&readings_buffer_lock);
@@ -235,6 +219,12 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 
 SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 {
+	/* TODO: change this to use the correct behavior from
+		Piazza, which is to destroy the event immediately 
+		no matter how many are waiting, and notify them
+		somehow 
+	*/
+
 	struct event *tmp;
 
 	down_read(&eventlist_lock);
@@ -244,16 +234,19 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	}
 	up_read(&eventlist_lock);
 
-	/* No such an event. */
+	/* No such event. */
 	if (tmp == &event_list_head)
 		return -EINVAL;
-	atomic_dec(&tmp->ref_count);
+
 	if (atomic_read(&tmp->ref_count) == 0) {
 		down_write(&eventlist_lock);
 		list_del(&tmp->event_list);
 		up_write(&eventlist_lock);
 		kfree(tmp->waiting_tasks);
 		kfree(tmp);
+		/* TODO: free event itself and its wait queue */
+		atomic_set(&tmp->run_flag, 1);			
+		wake_up_all(tmp->waiting_tasks);
 	}
 	return 0;
 }
