@@ -8,6 +8,7 @@
 #include <linux/wait.h>
 #include <asm/atomic.h>
 #include <linux/slab.h>
+#include <linux/sort.h>
 
 #define MAX_INTENSITY 32768 * 100
 
@@ -142,6 +143,11 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	return 0;
 }
 
+static int cmp(const void *r1, const void *r2) 
+{
+	return *(int *)r2 - *(int *)r1;
+}
+
 SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_intensity)
 {
 	static int light_readings[WINDOW];
@@ -151,50 +157,32 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	/* readings_buffer_lock locks both arrays and both index vars */
 	/* do not use any of these 4 static vars above without acquiring lock */
 	static DECLARE_RWSEM(readings_buffer_lock); 
-	int i, added_light, removed_light;
+	int i, added_light, reading_cnt;
 	struct event *tmp;
 	 
 	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
 		return -EFAULT;
 
-	/* I'm worried that this insertion sort is too complicated.
-		It's a nice optimization, but we could just sort the indices
-		with qsort */
 	down_write(&readings_buffer_lock);
-	removed_light = light_readings[next_reading];
 	light_readings[next_reading++] = added_light;
-	if (next_reading == WINDOW)
+	if (next_reading == WINDOW) {
 		next_reading = 0;
-	if (!buffer_full && !next_reading)
 		buffer_full = 1;
-
-	if (!buffer_full) {
-		/* insert sort */
-		i = next_reading - 1;
-		while (i > 0 && added_light > sorted_indices[i - 1]) {
-			sorted_indices[i] = sorted_indices[i - 1];
-			--i;
-		}
-		sorted_indices[i] = added_light;
-		up_write(&readings_buffer_lock);
-		return 0;
 	}
 
-	/* insert sort */
-	for (i = 0; i < WINDOW; ++i) {
-		if (sorted_indices[i] == removed_light)
-			break;
-	}
-	while (i > 0 && added_light > sorted_indices[i - 1]) {
-		sorted_indices[i] = sorted_indices[i - 1];
-		--i;
-	}
-	sorted_indices[i] = added_light;
-	while (i < WINDOW - 1 && added_light < sorted_indices[i + 1]) {
-		sorted_indices[i] = sorted_indices[i + 1];
-		++i;
-	}
-	sorted_indices[i] = added_light;
+	reading_cnt = (buffer_full ? WINDOW : next_reading);
+	memcpy(sorted_indices, light_readings, reading_cnt * sizeof(int));
+	sort(sorted_indices, reading_cnt, sizeof(int), cmp, NULL);
+	
+	/*if (!buffer_full) {
+		printk("Light  ");
+		for (i = 0; i < 20; ++i)
+			printk("%d ", light_readings[i]);
+		printk("\nSorted ");
+		for (i = 0; i < 20; ++i)
+			printk("%d ", sorted_indices[i]);
+		printk("\n");		
+	}*/
 
 	/* Do we need a write lock? Because wait_queue has its own lock. */
 	downgrade_write(&readings_buffer_lock);
