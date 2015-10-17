@@ -9,6 +9,7 @@
 #include <asm/atomic.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
+#include <linux/delay.h>
 
 #define MAX_INTENSITY 32768 * 100
 
@@ -89,20 +90,26 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	struct event_requirements request;
 	int req_intensity;
 	int frequency;
-
+	
+	printk(KERN_DEBUG "Enter created function!\n");
+	printk(KERN_DEBUG "Enter created function!\n");
+	printk(KERN_DEBUG "Enter created function!\n");
+	printk(KERN_DEBUG "Enter created function!\n");
 	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)) != 0)
 		return -EFAULT; 
 
 	req_intensity = request.req_intensity;
 	frequency = request.frequency;
-
+	printk(KERN_DEBUG "proceeds function 1!\n");
+	
 	if (frequency <= 0 || req_intensity < 0 || req_intensity > MAX_INTENSITY)
 		return -EINVAL;
 	if (frequency > WINDOW)
 		frequency = WINDOW;
 
 	down_write(&eventlist_lock);
-
+	printk(KERN_DEBUG "proceeds function 2!\n");
+	
 	tmp = create_event_descriptor(req_intensity, frequency);
 	if (tmp == NULL) {
 		up_write(&eventlist_lock);
@@ -117,20 +124,23 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	list_add_tail(&tmp->event_list, &event_list_head.event_list);
 	up_write(&eventlist_lock);
 	//printk("4444\n");
+	printk(KERN_DEBUG "Event id %d created!\n",tmp->eid);
 	return tmp->eid;
 }
 
 SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 {
 	struct event *tmp;
-
+	printk(KERN_DEBUG "Initiating %d(for %d)\n",current->pid,event_id);
 	/* Since wait_queue has its own lock, we don't need to acquire write lock. */
 	down_read(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
 			up_read(&eventlist_lock);
 			atomic_add(1, &tmp->ref_count);
+			printk(KERN_DEBUG "blocking %d\n",current->pid);
 			wait_event(*tmp->waiting_tasks, atomic_read(&tmp->run_flag));
+			printk(KERN_DEBUG "unblocking %d\n",current->pid);
 			break;
 		}
 	}
@@ -140,7 +150,26 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 		up_read(&eventlist_lock);
 		return -EINVAL;
 	}
-	return 0;
+	
+	//somethitng went wrong
+	if (atomic_read(&tmp->ref_count) < 0) 
+		return -EFAULT;
+	
+	//Event got destroyed
+	if (atomic_read(&tmp->ref_count) > 0) {
+		printk(KERN_DEBUG "%d wakes up and decrease the count !",current->pid);
+		atomic_sub(1,&tmp->ref_count);
+		
+		//I am the last guy so remove the event completely !
+		if (atomic_read(&tmp->ref_count) == 1) 
+			atomic_sub(1,&tmp->ref_count);
+
+		return 0;
+	}
+	
+	//Waiting successfully
+	printk(KERN_DEBUG "%d waits successfully for %d\n",current->pid,event_id);
+	return 1;
 }
 
 static int cmp(const void *r1, const void *r2) 
@@ -157,7 +186,7 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	/* readings_buffer_lock locks both arrays and both index vars */
 	/* do not use any of these 4 static vars above without acquiring lock */
 	static DECLARE_RWSEM(readings_buffer_lock); 
-	int i, added_light, reading_cnt;
+	int added_light, reading_cnt;
 	struct event *tmp;
 	 
 	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
@@ -214,28 +243,32 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	*/
 
 	struct event *tmp;
-
-	down_read(&eventlist_lock);
+	down_write(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id)
 			break;
 	}
-	up_read(&eventlist_lock);
-
 	/* No such event. */
-	if (tmp == &event_list_head)
-		return -EINVAL;
-
-	if (atomic_read(&tmp->ref_count) == 0) {
-		down_write(&eventlist_lock);
-		list_del(&tmp->event_list);
+	if (tmp == &event_list_head) {
 		up_write(&eventlist_lock);
-		kfree(tmp->waiting_tasks);
-		kfree(tmp);
-		/* TODO: free event itself and its wait queue */
-		atomic_set(&tmp->run_flag, 1);			
-		wake_up_all(tmp->waiting_tasks);
+		return -EINVAL;
 	}
+	else list_del(&tmp->event_list);
+	up_write(&eventlist_lock);
+	
+	atomic_set(&tmp->run_flag, 1);
+	//wake up all remaining tasks which were waiting for this event
+	wake_up_all(tmp->waiting_tasks);
+	
+	while(atomic_read(&tmp->ref_count) !=0) {
+		printk(KERN_DEBUG "Ref_count is %d\n",atomic_read(&tmp->ref_count));
+		printk(KERN_DEBUG "Destroyer busy waiting!\n");
+		//msleep(3000000);
+	};
+	
+	kfree(tmp->waiting_tasks);
+	kfree(tmp);
+
 	return 0;
 }
 
