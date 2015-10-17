@@ -92,7 +92,7 @@ static void create_child(int event_id, int light_intensity) {
 		
 		int status = syscall(__NR_light_evt_wait, event_id);
 		
-		if (status > 0) {
+		if (status == 0) {
 			if (light_intensity >= HIGH_INTENSITY)
 				printf("%d detected a high intensity event\n",cur_pid);
 		
@@ -105,11 +105,13 @@ static void create_child(int event_id, int light_intensity) {
 			printf("%d quits because it finishes waiting %d event \n",cur_pid, event_id);
 		}
 		
-		if (status == 0)
-			printf("%d quits because event %d is destroyed\n",cur_pid, event_id);
-		
-		if (status < 0)
-			printf("error %s\n",strerror(errno));
+		if (status < 0) {
+			if (errno == EINTR)
+				printf("%d quits because event %d is destroyed\n",cur_pid, event_id);
+			else
+				printf("error %s\n",strerror(errno));
+
+		}
 			
 		exit(0);
 	}

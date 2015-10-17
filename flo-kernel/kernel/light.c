@@ -55,7 +55,7 @@ static struct event *create_event_descriptor(int req_intensity, int frequency) {
 	}
 	init_waitqueue_head(new_event->waiting_tasks);
 	atomic_set(&new_event->run_flag, 0);
-	atomic_set(&new_event->ref_count, 1);
+	atomic_set(&new_event->ref_count, 0);
 	return new_event;
 }
 
@@ -217,10 +217,8 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	write_unlock(&eventlist_lock);
 	
 	atomic_set(&tmp->run_flag, 1);
-	//wake up all remaining tasks which were waiting for this event
-	wake_up_all(tmp->waiting_tasks);
-	
-	while(atomic_read(&tmp->ref_count) !=0);
+	wake_up_all(tmp->waiting_tasks);	
+	while(atomic_read(&tmp->ref_count) != 0);
 	
 	kfree(tmp->waiting_tasks);
 	kfree(tmp);
