@@ -3,13 +3,13 @@
 #include <linux/slab.h>
 #include <linux/light.h>
 #include <linux/list.h>
-#include <linux/mutex.h>
 #include <linux/wait.h>
 #include <asm/atomic.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
 #include <linux/spinlock.h>
 #include <linux/spinlock_types.h>
+//#include <linux/delay.h>
 
 #define MAX_INTENSITY 32768 * 100
 
@@ -38,14 +38,6 @@ static struct event event_list_head = {
 };
 static DEFINE_RWLOCK(eventlist_lock);
 static atomic_t eid = {0};
-
-/* readings_buffer_lock locks both arrays and both index vars */
-/* do not use any of these 4 static vars without acquiring lock */
-static DEFINE_RWLOCK(readings_buffer_lock);
-static int light_readings[WINDOW];
-static int sorted_indices[WINDOW];
-static int next_reading = 0; 
-static int buffer_full = 0;	
 
 static struct event *create_event_descriptor(int req_intensity, int frequency) {
 	
@@ -96,13 +88,13 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	struct event_requirements request;
 	int req_intensity;
 	int frequency;
-
+	
 	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)) != 0)
 		return -EFAULT; 
 
 	req_intensity = request.req_intensity;
 	frequency = request.frequency;
-
+	
 	if (frequency <= 0 || req_intensity < 0 || req_intensity > MAX_INTENSITY)
 		return -EINVAL;
 	if (frequency > WINDOW)
@@ -122,7 +114,6 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 {
 	struct event *tmp;
-
 	/* Since wait_queue has its own lock, we don't need to acquire write lock. */
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
@@ -139,6 +130,17 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 		read_unlock(&eventlist_lock);
 		return -EINVAL;
 	}
+	
+	//somethitng went wrong
+	if (atomic_read(&tmp->ref_count) < 0) 
+		return -EFAULT;
+	
+	//Event got destroyed
+	if (atomic_read(&tmp->ref_count) > 0) {
+		atomic_sub(1,&tmp->ref_count);
+		return -EINTR;
+	}
+	
 	return 0;
 }
 
@@ -148,8 +150,16 @@ static int cmp(const void *r1, const void *r2)
 }
 
 SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_intensity)
-{	
-	int /*i,*/ added_light, reading_cnt;
+{
+	/* readings_buffer_lock locks both arrays and both index vars */
+	/* do not use any of these 4 static vars above without acquiring lock */	
+	static DEFINE_RWLOCK(readings_buffer_lock);
+	static int light_readings[WINDOW];
+	static int sorted_indices[WINDOW];
+	static int next_reading = 0; 
+	static int buffer_full = 0; 
+
+	int added_light, reading_cnt, threshold;
 	struct event *tmp;
 	 
 	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
@@ -165,23 +175,15 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	reading_cnt = (buffer_full ? WINDOW : next_reading);
 	memcpy(sorted_indices, light_readings, reading_cnt * sizeof(int));
 	sort(sorted_indices, reading_cnt, sizeof(int), cmp, NULL);
-	/*if (!buffer_full) {
-		printk("Light  ");
-		for (i = 0; i < 20; ++i)
-			printk("%d ", light_readings[i]);
-		printk("\nSorted ");
-		for (i = 0; i < 20; ++i)
-			printk("%d ", sorted_indices[i]);
-		printk("\n");		
-	}*/
 
 	write_unlock(&readings_buffer_lock);
 	read_lock(&readings_buffer_lock);
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {		
 		if (tmp->eid != 0) {
-			if (tmp->frequency == 0 || sorted_indices[tmp->frequency - 1] >= 
-										tmp->req_intensity - NOISE) {
+			threshold = tmp->req_intensity - NOISE;
+			if (tmp->frequency - 1 < next_reading && (tmp->frequency == 0 || 
+				sorted_indices[tmp->frequency - 1] >= threshold)) {
 				atomic_set(&tmp->run_flag, 1);			
 				atomic_set(&tmp->ref_count, 0);
 				wake_up_all(tmp->waiting_tasks);
@@ -198,35 +200,31 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 
 SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 {
-	/* TODO: change this to use the correct behavior from
-		Piazza, which is to destroy the event immediately 
-		no matter how many are waiting, and notify them
-		somehow 
-	*/
-
 	struct event *tmp;
 
-	read_lock(&eventlist_lock);
+	write_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id)
 			break;
 	}
-	read_unlock(&eventlist_lock);
 
 	/* No such event. */
-	if (tmp == &event_list_head)
-		return -EINVAL;
-
-	if (atomic_read(&tmp->ref_count) == 0) {
-		write_lock(&eventlist_lock);
-		list_del(&tmp->event_list);
+	if (tmp == &event_list_head) {
 		write_unlock(&eventlist_lock);
-		kfree(tmp->waiting_tasks);
-		kfree(tmp);
-		/* TODO: free event itself and its wait queue */
-		atomic_set(&tmp->run_flag, 1);			
-		wake_up_all(tmp->waiting_tasks);
+		return -EINVAL;
 	}
+	else list_del(&tmp->event_list);
+	write_unlock(&eventlist_lock);
+	
+	atomic_set(&tmp->run_flag, 1);
+	//wake up all remaining tasks which were waiting for this event
+	wake_up_all(tmp->waiting_tasks);
+	
+	while(atomic_read(&tmp->ref_count) !=0);
+	
+	kfree(tmp->waiting_tasks);
+	kfree(tmp);
+
 	return 0;
 }
 
