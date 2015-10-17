@@ -115,7 +115,7 @@ int main(int argc, char **argv)
 	/* Fill in daemon implementation around here */
 	#define TIME_INTERVAL  1000
 	printf("turn me into a daemon!\n");
-	while (1) {	
+	while (1) {
 		poll_sensor_data(sensors_device);
 		usleep(TIME_INTERVAL);
 	}
@@ -143,15 +143,15 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 		for (i = 0; i < count; ++i) {
 			if (buffer[i].sensor != effective_sensor)
 				continue;
-		
+
 			/* You have the intensity here - scale it and send it to your kernel */
 			cur_intensity = buffer[i].light;
-			lig.cur_intensity = cur_intensity * 1000;
-			if (syscall(__NR_set_light_intensity, &lig) != 0) {
+			lig.cur_intensity = cur_intensity * 100;
+			if (syscall(__NR_set_light_intensity, &lig)) {
 				printf("error: %s\n", strerror(errno));
 				return EXIT_FAILURE;				
 			}
-			if (syscall(__NR_light_evt_signal, &lig) != 0) {
+			if (syscall(__NR_light_evt_signal, &lig)) {
 				printf("error: %s\n", strerror(errno));
 				return EXIT_FAILURE;
 			}
@@ -166,18 +166,18 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 		/* cur_intensity has a floating point value that you would have fed to */
 		/* light_sensor binary */
 		cur_intensity = poll_sensor_data_emulator();
-		lig.cur_intensity = cur_intensity * 1000;
-		if (syscall(__NR_set_light_intensity, &lig) != 0) {
+		lig.cur_intensity = cur_intensity * 100;
+		if (syscall(__NR_set_light_intensity, &lig)) {
 			printf("error: %s\n", strerror(errno));
 			return EXIT_FAILURE;				
 		}
-		if (syscall(__NR_light_evt_signal, &lig) != 0) {
+		if (syscall(__NR_light_evt_signal, &lig)) {
 			printf("error: %s\n", strerror(errno));
 			return EXIT_FAILURE;
 		}
 		printf("%f\n", cur_intensity);
 	}
-	
+
 	return 0;
 }
 

@@ -14,9 +14,9 @@
 #define __NR_light_evt_signal 382
 #define __NR_light_evt_destroy 383
 
-static const int LOW_INTENSITY = 500;
-static const int MEDIUM_INTENSITY = 5000;
-static const int HIGH_INTENSITY = 20000;
+static const int LOW_INTENSITY = 50;
+static const int MEDIUM_INTENSITY = 500;
+static const int HIGH_INTENSITY = 2000;
 static const int NO_INT_CAT = 3;
 static const int NUM_OF_CHILDREN = 10;
 static const int FREQUENCY = 7;

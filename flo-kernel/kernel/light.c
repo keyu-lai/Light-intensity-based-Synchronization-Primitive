@@ -13,19 +13,8 @@
 
 #define MAX_INTENSITY 32768 * 100
 
-struct event {
-	int eid;
-	int req_intensity;
-	int frequency;
-	wait_queue_head_t *waiting_tasks; /* this contains its own lock */
-	struct list_head event_list;
-	atomic_t run_flag;
-	atomic_t ref_count; 																		
-};
-
 static struct light_intensity light_sensor = {0};
 static DEFINE_RWLOCK(light_rwlock);
-
 
 static struct event event_list_head = {
 	.eid = 0,
@@ -33,15 +22,14 @@ static struct event event_list_head = {
 	.frequency = 0,
 	.waiting_tasks = NULL,
 	.event_list = LIST_HEAD_INIT(event_list_head.event_list),
-	.run_flag = {0},
-	.ref_count = {0}
+	.run_flag = ATOMIC_INIT(0),
+	.ref_count = ATOMIC_INIT(0)
 };
 static DEFINE_RWLOCK(eventlist_lock);
-static atomic_t eid = {0};
+static atomic_t eid = ATOMIC_INIT(0);
 
-static struct event *create_event_descriptor(int req_intensity, int frequency) {
-	
-
+static struct event *create_event_descriptor(int req_intensity, int frequency)
+{
 	struct event *new_event = kmalloc(sizeof(struct event), GFP_KERNEL);
 	if (new_event == NULL)
 		return NULL;
@@ -61,11 +49,10 @@ static struct event *create_event_descriptor(int req_intensity, int frequency) {
 
 SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, user_light_intensity)
 {
-
 	if (user_light_intensity == NULL)
 		return -EINVAL;
 	write_lock(&light_rwlock);
-	if (copy_from_user(&light_sensor, user_light_intensity, sizeof(struct light_intensity)) != 0)
+	if (copy_from_user(&light_sensor, user_light_intensity, sizeof(struct light_intensity)))
 		return -EINVAL;
 	write_unlock(&light_rwlock);
 	return 0;
@@ -76,7 +63,7 @@ SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *, user_light
 	if (user_light_intensity == NULL)
 		return -EINVAL;
 	read_lock(&light_rwlock);
-	if (copy_to_user(user_light_intensity, &light_sensor, sizeof(struct light_intensity)) != 0)
+	if (copy_to_user(user_light_intensity, &light_sensor, sizeof(struct light_intensity)))
 		return -EINVAL;
 	read_unlock(&light_rwlock);
 	return 0;
@@ -88,8 +75,10 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 	struct event_requirements request;
 	int req_intensity;
 	int frequency;
-	
-	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)) != 0)
+
+	if (intensity_params == NULL)
+		return -EFAULT;
+	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)))
 		return -EFAULT; 
 
 	req_intensity = request.req_intensity;
@@ -101,10 +90,9 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 		frequency = WINDOW;
 
 	tmp = create_event_descriptor(req_intensity, frequency);
-	if (tmp == NULL) {
+	if (tmp == NULL)
 		return -ENOMEM;
-	}
-	write_lock(&eventlist_lock);		
+	write_lock(&eventlist_lock);
 	list_add_tail(&tmp->event_list, &event_list_head.event_list);
 	write_unlock(&eventlist_lock);
 
@@ -118,8 +106,8 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
-			read_unlock(&eventlist_lock);
 			atomic_add(1, &tmp->ref_count);
+			read_unlock(&eventlist_lock);
 			wait_event(*tmp->waiting_tasks, atomic_read(&tmp->run_flag));
 			break;
 		}
@@ -130,17 +118,17 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 		read_unlock(&eventlist_lock);
 		return -EINVAL;
 	}
-	
+
 	//somethitng went wrong
 	if (atomic_read(&tmp->ref_count) < 0) 
 		return -EFAULT;
-	
+
 	//Event got destroyed
 	if (atomic_read(&tmp->ref_count) > 0) {
 		atomic_sub(1,&tmp->ref_count);
 		return -EINTR;
 	}
-	
+
 	return 0;
 }
 
@@ -152,17 +140,19 @@ static int cmp(const void *r1, const void *r2)
 SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_intensity)
 {
 	/* readings_buffer_lock locks both arrays and both index vars */
-	/* do not use any of these 4 static vars above without acquiring lock */	
+	/* do not use any of these 3 static vars above without acquiring lock */
 	static DEFINE_RWLOCK(readings_buffer_lock);
 	static int light_readings[WINDOW];
-	static int sorted_indices[WINDOW];
 	static int next_reading = 0; 
-	static int buffer_full = 0; 
+	static int buffer_full = 0;
 
+	int sorted_indices[WINDOW];
 	int added_light, reading_cnt, threshold;
 	struct event *tmp;
-	 
-	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)) != 0)
+	
+	if (user_light_intensity == NULL)
+		return -EFAULT;
+	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)))
 		return -EFAULT;
 
 	write_lock(&readings_buffer_lock);
@@ -179,24 +169,21 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	write_unlock(&readings_buffer_lock);
 	read_lock(&readings_buffer_lock);
 	read_lock(&eventlist_lock);
-	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {		
-		if (tmp->eid != 0) {
-			threshold = tmp->req_intensity - NOISE;
-			if (tmp->frequency - 1 < next_reading && (tmp->frequency == 0 || 
-				sorted_indices[tmp->frequency - 1] >= threshold)) {
-				atomic_set(&tmp->run_flag, 1);			
-				atomic_set(&tmp->ref_count, 0);
-				wake_up_all(tmp->waiting_tasks);
-			}
-			else
-				atomic_set(&tmp->run_flag, 0); 		
+	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
+		threshold = tmp->req_intensity - NOISE;
+		if (tmp->frequency == 0 || (tmp->frequency <= reading_cnt &&
+			sorted_indices[tmp->frequency - 1] >= threshold)) {
+			atomic_set(&tmp->run_flag, 1);
+			atomic_set(&tmp->ref_count, 0);
+			wake_up_all(tmp->waiting_tasks);
 		}
+		else
+			atomic_set(&tmp->run_flag, 0);
 	}
 	read_unlock(&eventlist_lock);
 	read_unlock(&readings_buffer_lock);
 	return 0;
 }
-
 
 SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 {
@@ -213,13 +200,14 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 		write_unlock(&eventlist_lock);
 		return -EINVAL;
 	}
-	else list_del(&tmp->event_list);
+	else
+		list_del(&tmp->event_list);
 	write_unlock(&eventlist_lock);
-	
+
 	atomic_set(&tmp->run_flag, 1);
 	wake_up_all(tmp->waiting_tasks);	
-	while(atomic_read(&tmp->ref_count) != 0);
-	
+	while(atomic_read(&tmp->ref_count) != 0)
+		;
 	kfree(tmp->waiting_tasks);
 	kfree(tmp);
 

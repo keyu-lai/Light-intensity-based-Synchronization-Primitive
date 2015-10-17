@@ -8,6 +8,15 @@
 #define NOISE 10
 #define WINDOW 20
 
+struct event {
+	int eid;
+	int req_intensity;
+	int frequency;
+	wait_queue_head_t *waiting_tasks; /* this contains its own lock */
+	struct list_head event_list;
+	atomic_t run_flag;
+	atomic_t ref_count;
+};
 
 /*
  * The data structure for passing light intensity data to the
