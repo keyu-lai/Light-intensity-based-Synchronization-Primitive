@@ -263,7 +263,6 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	while(atomic_read(&tmp->ref_count) !=0) {
 		printk(KERN_DEBUG "Ref_count is %d\n",atomic_read(&tmp->ref_count));
 		printk(KERN_DEBUG "Destroyer busy waiting!\n");
-		//msleep(3000000);
 	};
 	
 	kfree(tmp->waiting_tasks);
