@@ -163,11 +163,11 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	}
 
 	reading_cnt = (buffer_full ? WINDOW : next_reading);
+	write_unlock(&readings_buffer_lock);
+	read_lock(&readings_buffer_lock);
 	memcpy(sorted_indices, light_readings, reading_cnt * sizeof(int));
 	sort(sorted_indices, reading_cnt, sizeof(int), cmp, NULL);
 
-	write_unlock(&readings_buffer_lock);
-	read_lock(&readings_buffer_lock);
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		threshold = tmp->req_intensity - NOISE;
