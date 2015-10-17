@@ -203,11 +203,13 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	else
 		list_del(&tmp->event_list);
 	write_unlock(&eventlist_lock);
-
-	atomic_set(&tmp->run_flag, 1);
-	wake_up_all(tmp->waiting_tasks);	
-	while(atomic_read(&tmp->ref_count) != 0)
-		;
+	
+	if (atomic_read(&tmp->ref_count)) {
+		atomic_set(&tmp->run_flag, 1);
+		wake_up_all(tmp->waiting_tasks);
+		while(atomic_read(&tmp->ref_count) != 0)
+			;
+	}
 	kfree(tmp->waiting_tasks);
 	kfree(tmp);
 
