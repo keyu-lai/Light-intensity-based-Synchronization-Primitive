@@ -9,7 +9,7 @@
 #include <linux/sort.h>
 #include <linux/spinlock.h>
 #include <linux/spinlock_types.h>
-//#include <linux/delay.h>
+#include <linux/cred.h>
 
 #define MAX_INTENSITY 32768 * 100
 
@@ -51,6 +51,8 @@ SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, user_light
 {
 	if (user_light_intensity == NULL)
 		return -EINVAL;
+	if (current_uid() != 0)
+		return -EPERM;
 	write_lock(&light_rwlock);
 	if (copy_from_user(&light_sensor, user_light_intensity, sizeof(struct light_intensity)))
 		return -EINVAL;
@@ -62,6 +64,8 @@ SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *, user_light
 {
 	if (user_light_intensity == NULL)
 		return -EINVAL;
+	if (current_uid() != 0)
+		return -EPERM;
 	read_lock(&light_rwlock);
 	if (copy_to_user(user_light_intensity, &light_sensor, sizeof(struct light_intensity)))
 		return -EINVAL;
@@ -171,6 +175,8 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		threshold = tmp->req_intensity - NOISE;
+		if (threshold < 0)
+			threshold = 0;
 		if (tmp->frequency == 0 || (tmp->frequency <= reading_cnt &&
 			sorted_indices[tmp->frequency - 1] >= threshold)) {
 			atomic_set(&tmp->run_flag, 1);
