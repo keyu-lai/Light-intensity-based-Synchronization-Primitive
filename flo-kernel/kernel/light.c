@@ -72,7 +72,7 @@ SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *,
 	if (current_uid() != 0)
 		return -EPERM;
 	read_lock(&light_rwlock);
-	if (copy_to_user(user_light_intensity, &light_sensor, 
+	if (copy_to_user(user_light_intensity, &light_sensor,
 		sizeof(struct light_intensity)))
 		return -EINVAL;
 	read_unlock(&light_rwlock);
@@ -91,7 +91,7 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *,
 		return -EFAULT;
 	if (copy_from_user(&request, intensity_params,
 		sizeof(struct event_requirements)))
-		return -EFAULT; 
+		return -EFAULT;
 
 	req_intensity = request.req_intensity;
 	frequency = request.frequency;
@@ -116,7 +116,6 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 {
 	struct event *tmp;
 
-	/* Since wait_queue has its own lock, we don't need to acquire write lock. */
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
 		if (tmp->eid == event_id) {
@@ -135,7 +134,7 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 	}
 
 	/* somethitng went wrong. */
-	if (atomic_read(&tmp->ref_count) < 0) 
+	if (atomic_read(&tmp->ref_count) < 0)
 		return -EFAULT;
 
 	/* Event got destroyed. */
@@ -219,8 +218,8 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	if (tmp == &event_list_head) {
 		write_unlock(&eventlist_lock);
 		return -EINVAL;
-	} else
-		list_del(&tmp->event_list);
+	}
+	list_del(&tmp->event_list);
 	write_unlock(&eventlist_lock);
 
 	if (atomic_read(&tmp->ref_count)) {

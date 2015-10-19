@@ -53,7 +53,7 @@ void daemon_mode()
 	pid_t pid, sid;
 
 	pid = fork();
-	if(pid < 0) {
+	if (pid < 0) {
 		printf("error: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -133,10 +133,11 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 	const size_t numEventMax = 16;
 	const size_t minBufferSize = numEventMax;
 	sensors_event_t buffer[minBufferSize];
-	ssize_t count = sensors_device->poll(sensors_device, buffer, minBufferSize);
+	ssize_t count = sensors_device->poll(sensors_device,
+		buffer, minBufferSize);
 	float cur_intensity = 0;
 	struct light_intensity lig;
-	int i; 
+	int i;
 
 	if (cur_device == DEVICE) {
 
@@ -144,7 +145,6 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 			if (buffer[i].sensor != effective_sensor)
 				continue;
 
-			/* You have the intensity here - scale it and send it to your kernel */
 			cur_intensity = buffer[i].light;
 			lig.cur_intensity = cur_intensity * 100;
 			if (syscall(__NR_set_light_intensity, &lig)) {
@@ -189,11 +189,11 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 static int poll_sensor_data_emulator(void)
 {
 	float cur_intensity;
-	
 	FILE *fp = fopen("/data/misc/intensity", "r");
+
 	if (!fp)
-		return 0;       
-	
+		return 0;
+
 	fscanf(fp, "%f", &cur_intensity);
 	fclose(fp);
 	return cur_intensity;
