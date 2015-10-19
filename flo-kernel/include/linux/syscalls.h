@@ -859,11 +859,15 @@ asmlinkage long sys_process_vm_writev(pid_t pid,
 				      const struct iovec __user *rvec,
 				      unsigned long riovcnt,
 				      unsigned long flags);
-asmlinkage long sys_set_light_intensity(struct light_intensity __user * user_light_intensity);
-asmlinkage long sys_get_light_intensity(struct light_intensity __user * user_light_intensity);
-asmlinkage long sys_light_evt_create(struct event_requirements __user *intensity_params);
+asmlinkage long sys_set_light_intensity(
+			struct light_intensity __user *user_light_intensity);
+asmlinkage long sys_get_light_intensity(
+			struct light_intensity __user *user_light_intensity);
+asmlinkage long sys_light_evt_create(
+			struct event_requirements __user *intensity_params);
 asmlinkage long sys_light_evt_wait(int event_id);
-asmlinkage long sys_light_evt_signal(struct light_intensity __user * user_light_intensity);
+asmlinkage long sys_light_evt_signal(
+			struct light_intensity __user *user_light_intensity);
 asmlinkage long sys_light_evt_destroy(int event_id);
 
 #endif

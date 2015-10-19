@@ -11,7 +11,7 @@
 #include <linux/spinlock_types.h>
 #include <linux/cred.h>
 
-#define MAX_INTENSITY 32768 * 100
+#define MAX_INTENSITY (32768 * 100)
 
 static struct light_intensity light_sensor = {0};
 static DEFINE_RWLOCK(light_rwlock);
@@ -31,12 +31,13 @@ static atomic_t eid = ATOMIC_INIT(0);
 static struct event *create_event_descriptor(int req_intensity, int frequency)
 {
 	struct event *new_event = kmalloc(sizeof(struct event), GFP_KERNEL);
+
 	if (new_event == NULL)
 		return NULL;
 	new_event->eid = atomic_add_return(1, &eid);
 	new_event->req_intensity = req_intensity;
 	new_event->frequency = frequency;
-	new_event->waiting_tasks = kmalloc(sizeof(wait_queue_head_t), 
+	new_event->waiting_tasks = kmalloc(sizeof(wait_queue_head_t),
 		GFP_KERNEL);
 	if (new_event->waiting_tasks == NULL) {
 		kfree(new_event);
@@ -48,7 +49,7 @@ static struct event *create_event_descriptor(int req_intensity, int frequency)
 	return new_event;
 }
 
-SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, 
+SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *,
 	user_light_intensity)
 {
 	if (user_light_intensity == NULL)
@@ -56,14 +57,14 @@ SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *,
 	if (current_uid() != 0)
 		return -EPERM;
 	write_lock(&light_rwlock);
-	if (copy_from_user(&light_sensor, user_light_intensity, 
+	if (copy_from_user(&light_sensor, user_light_intensity,
 		sizeof(struct light_intensity)))
 		return -EINVAL;
 	write_unlock(&light_rwlock);
 	return 0;
 }
 
-SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *, 
+SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *,
 	user_light_intensity)
 {
 	if (user_light_intensity == NULL)
@@ -78,7 +79,7 @@ SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *,
 	return 0;
 }
 
-SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, 
+SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *,
 	intensity_params)
 {
 	struct event *tmp;
@@ -88,14 +89,14 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *,
 
 	if (intensity_params == NULL)
 		return -EFAULT;
-	if (copy_from_user(&request, intensity_params, 
+	if (copy_from_user(&request, intensity_params,
 		sizeof(struct event_requirements)))
 		return -EFAULT; 
 
 	req_intensity = request.req_intensity;
 	frequency = request.frequency;
 
-	if (frequency <= 0 || req_intensity < 0 || 
+	if (frequency <= 0 || req_intensity < 0 ||
 		req_intensity > MAX_INTENSITY)
 		return -EINVAL;
 	if (frequency > WINDOW)
@@ -121,7 +122,8 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 		if (tmp->eid == event_id) {
 			atomic_add(1, &tmp->ref_count);
 			read_unlock(&eventlist_lock);
-			wait_event(*tmp->waiting_tasks, atomic_read(&tmp->run_flag));
+			wait_event(*tmp->waiting_tasks,
+				atomic_read(&tmp->run_flag));
 			break;
 		}
 	}
@@ -132,33 +134,35 @@ SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 		return -EINVAL;
 	}
 
-	//somethitng went wrong
+	/* somethitng went wrong. */
 	if (atomic_read(&tmp->ref_count) < 0) 
 		return -EFAULT;
 
-	//Event got destroyed
+	/* Event got destroyed. */
 	if (atomic_read(&tmp->ref_count) > 0) {
-		atomic_sub(1,&tmp->ref_count);
+		atomic_sub(1, &tmp->ref_count);
 		return -EINTR;
 	}
 
 	return 0;
 }
 
-static int cmp(const void *r1, const void *r2) 
+static int cmp(const void *r1, const void *r2)
 {
 	return *(int *)r2 - *(int *)r1;
 }
 
-SYSCALL_DEFINE1(light_evt_signal, 
+SYSCALL_DEFINE1(light_evt_signal,
 	struct light_intensity __user *, user_light_intensity)
 {
-	/* readings_buffer_lock locks both arrays and both index vars */
-	/* do not use any of these 3 static vars above without acquiring lock */
+	/*
+	 * readings_buffer_lock locks both arrays and both index vars
+	 * do not use any of these 3 static vars without acquiring lock
+	 */
 	static DEFINE_RWLOCK(readings_buffer_lock);
 	static int light_readings[WINDOW];
-	static int next_reading = 0; 
-	static int buffer_full = 0;
+	static int next_reading;
+	static int buffer_full;
 
 	int sorted_indices[WINDOW];
 	int added_light, reading_cnt, threshold;
@@ -166,7 +170,7 @@ SYSCALL_DEFINE1(light_evt_signal,
 
 	if (user_light_intensity == NULL)
 		return -EFAULT;
-	if (copy_from_user(&added_light, 
+	if (copy_from_user(&added_light,
 		&user_light_intensity->cur_intensity, sizeof(int)))
 		return -EFAULT;
 
@@ -193,8 +197,7 @@ SYSCALL_DEFINE1(light_evt_signal,
 			atomic_set(&tmp->run_flag, 1);
 			atomic_set(&tmp->ref_count, 0);
 			wake_up_all(tmp->waiting_tasks);
-		}
-		else
+		} else
 			atomic_set(&tmp->run_flag, 0);
 	}
 	read_unlock(&eventlist_lock);
@@ -216,15 +219,14 @@ SYSCALL_DEFINE1(light_evt_destroy, int, event_id)
 	if (tmp == &event_list_head) {
 		write_unlock(&eventlist_lock);
 		return -EINVAL;
-	}
-	else
+	} else
 		list_del(&tmp->event_list);
 	write_unlock(&eventlist_lock);
-	
+
 	if (atomic_read(&tmp->ref_count)) {
 		atomic_set(&tmp->run_flag, 1);
 		wake_up_all(tmp->waiting_tasks);
-		while(atomic_read(&tmp->ref_count) != 0)
+		while (atomic_read(&tmp->ref_count) != 0)
 			;
 	}
 	kfree(tmp->waiting_tasks);

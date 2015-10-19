@@ -29,7 +29,7 @@ static void create_child(int event_id, int light_intensity) {
 		printf("error %s \n",strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-	if(cid > 0)
+	if (cid > 0)
 		exit(EXIT_SUCCESS);
 
 	pid_t cur_pid = getpid();
