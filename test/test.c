@@ -31,7 +31,7 @@ static void create_child(int event_id, int light_intensity)
 		exit(EXIT_FAILURE);
 	}
 	if (cid > 0)
-		exit(EXIT_SUCCESS);
+		return;
 
 	pid_t cur_pid = getpid();
 
