@@ -41,7 +41,7 @@ static void create_child(int event_id, int light_intensity)
 		if (light_intensity >= HIGH_INTENSITY)
 			printf("%d detected a high intensity event\n", cur_pid);
 
-		if (light_intensity >= MEDIUM_INTENSITY && 
+		if (light_intensity >= MEDIUM_INTENSITY &&
 			light_intensity < HIGH_INTENSITY)
 			printf("%d detected a medium intensity event\n",
 				cur_pid);
