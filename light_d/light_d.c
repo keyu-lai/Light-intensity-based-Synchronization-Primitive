@@ -149,13 +149,12 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 			lig.cur_intensity = cur_intensity * 100;
 			if (syscall(__NR_set_light_intensity, &lig)) {
 				printf("error: %s\n", strerror(errno));
-				return EXIT_FAILURE;				
+				return EXIT_FAILURE;
 			}
 			if (syscall(__NR_light_evt_signal, &lig)) {
 				printf("error: %s\n", strerror(errno));
 				return EXIT_FAILURE;
 			}
-			printf("%d\n", lig.cur_intensity);
 		}
 	}
 
@@ -169,13 +168,12 @@ static int poll_sensor_data(struct sensors_poll_device_t *sensors_device)
 		lig.cur_intensity = cur_intensity * 100;
 		if (syscall(__NR_set_light_intensity, &lig)) {
 			printf("error: %s\n", strerror(errno));
-			return EXIT_FAILURE;				
+			return EXIT_FAILURE;
 		}
 		if (syscall(__NR_light_evt_signal, &lig)) {
 			printf("error: %s\n", strerror(errno));
 			return EXIT_FAILURE;
 		}
-		printf("%f\n", cur_intensity);
 	}
 
 	return 0;

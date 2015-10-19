@@ -36,7 +36,8 @@ static struct event *create_event_descriptor(int req_intensity, int frequency)
 	new_event->eid = atomic_add_return(1, &eid);
 	new_event->req_intensity = req_intensity;
 	new_event->frequency = frequency;
-	new_event->waiting_tasks = kmalloc(sizeof(wait_queue_head_t), GFP_KERNEL);
+	new_event->waiting_tasks = kmalloc(sizeof(wait_queue_head_t), 
+		GFP_KERNEL);
 	if (new_event->waiting_tasks == NULL) {
 		kfree(new_event);
 		return NULL;
@@ -47,33 +48,38 @@ static struct event *create_event_descriptor(int req_intensity, int frequency)
 	return new_event;
 }
 
-SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, user_light_intensity)
+SYSCALL_DEFINE1(set_light_intensity, struct light_intensity __user *, 
+	user_light_intensity)
 {
 	if (user_light_intensity == NULL)
 		return -EINVAL;
 	if (current_uid() != 0)
 		return -EPERM;
 	write_lock(&light_rwlock);
-	if (copy_from_user(&light_sensor, user_light_intensity, sizeof(struct light_intensity)))
+	if (copy_from_user(&light_sensor, user_light_intensity, 
+		sizeof(struct light_intensity)))
 		return -EINVAL;
 	write_unlock(&light_rwlock);
 	return 0;
 }
 
-SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *, user_light_intensity)
+SYSCALL_DEFINE1(get_light_intensity, struct light_intensity __user *, 
+	user_light_intensity)
 {
 	if (user_light_intensity == NULL)
 		return -EINVAL;
 	if (current_uid() != 0)
 		return -EPERM;
 	read_lock(&light_rwlock);
-	if (copy_to_user(user_light_intensity, &light_sensor, sizeof(struct light_intensity)))
+	if (copy_to_user(user_light_intensity, &light_sensor, 
+		sizeof(struct light_intensity)))
 		return -EINVAL;
 	read_unlock(&light_rwlock);
 	return 0;
 }
 
-SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_params)
+SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, 
+	intensity_params)
 {
 	struct event *tmp;
 	struct event_requirements request;
@@ -82,13 +88,15 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 
 	if (intensity_params == NULL)
 		return -EFAULT;
-	if (copy_from_user(&request, intensity_params, sizeof(struct event_requirements)))
+	if (copy_from_user(&request, intensity_params, 
+		sizeof(struct event_requirements)))
 		return -EFAULT; 
 
 	req_intensity = request.req_intensity;
 	frequency = request.frequency;
-	
-	if (frequency <= 0 || req_intensity < 0 || req_intensity > MAX_INTENSITY)
+
+	if (frequency <= 0 || req_intensity < 0 || 
+		req_intensity > MAX_INTENSITY)
 		return -EINVAL;
 	if (frequency > WINDOW)
 		frequency = WINDOW;
@@ -106,6 +114,7 @@ SYSCALL_DEFINE1(light_evt_create, struct event_requirements __user *, intensity_
 SYSCALL_DEFINE1(light_evt_wait, int, event_id)
 {
 	struct event *tmp;
+
 	/* Since wait_queue has its own lock, we don't need to acquire write lock. */
 	read_lock(&eventlist_lock);
 	list_for_each_entry(tmp, &event_list_head.event_list, event_list) {
@@ -141,7 +150,8 @@ static int cmp(const void *r1, const void *r2)
 	return *(int *)r2 - *(int *)r1;
 }
 
-SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_intensity)
+SYSCALL_DEFINE1(light_evt_signal, 
+	struct light_intensity __user *, user_light_intensity)
 {
 	/* readings_buffer_lock locks both arrays and both index vars */
 	/* do not use any of these 3 static vars above without acquiring lock */
@@ -153,10 +163,11 @@ SYSCALL_DEFINE1(light_evt_signal, struct light_intensity __user *, user_light_in
 	int sorted_indices[WINDOW];
 	int added_light, reading_cnt, threshold;
 	struct event *tmp;
-	
+
 	if (user_light_intensity == NULL)
 		return -EFAULT;
-	if (copy_from_user(&added_light, &user_light_intensity->cur_intensity, sizeof(int)))
+	if (copy_from_user(&added_light, 
+		&user_light_intensity->cur_intensity, sizeof(int)))
 		return -EFAULT;
 
 	write_lock(&readings_buffer_lock);
